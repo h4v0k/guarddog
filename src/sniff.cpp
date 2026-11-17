@@ -52,6 +52,7 @@ static bool parseFrame(const uint8_t* p, int len, FrameInfo& f) {
   f.ssidLen = -1;
   f.apCh = 0;
   f.priv = false;
+  f.ridLen = 0;
   if (f.type != 0) return true;
   int ie = -1;
   if (f.sub == 8 || f.sub == 5) {  // beacon / probe response
@@ -75,6 +76,12 @@ static bool parseFrame(const uint8_t* p, int len, FrameInfo& f) {
       f.ssidLen = n;
     } else if (id == 3 && l == 1) {
       f.apCh = p[ie + 2];
+    } else if (id == 221 && l > 5 + 25 && p[ie + 2] == 0xFA && p[ie + 3] == 0x0B && p[ie + 4] == 0xBC &&
+               p[ie + 5] == 0x0D) {  // ASTM F3411 Remote ID vendor IE: OUI, type, counter, pack
+      int n = l - 5;
+      if (n > (int)sizeof(f.rid)) n = sizeof(f.rid);
+      memcpy(f.rid, p + ie + 7, n);
+      f.ridLen = n;
     }
     ie += 2 + l;
   }

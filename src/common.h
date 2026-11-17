@@ -5,8 +5,9 @@
 #include <SD.h>
 #include <functional>
 #include "esp_wifi.h"
+#include "sigs.h"
 
-#define SW_VERSION "1.0.0"
+#define SW_VERSION "1.1.0"
 
 // ---------- theme (RGB888) ----------
 namespace col {
@@ -35,6 +36,8 @@ struct Settings {
   bool sound = true;
   bool leds = true;
   bool big = true;  // large text in lists
+  uint8_t alertLvl = CF_MED;  // minimum confidence that pops a full-screen alert
+  uint16_t typeMask = 0;      // enabled detection types (bit = DetType); 0 = defaults
 };
 extern Settings gSet;
 extern bool gSdOk;
@@ -83,6 +86,8 @@ struct FrameInfo {
   uint8_t ch;      // channel we heard it on
   uint8_t apCh;    // DS param channel (beacons/probe resp), 0 if none
   bool priv;       // privacy bit (beacons/probe resp)
+  uint8_t ridLen;  // Remote ID message pack length (0 = none)
+  uint8_t rid[128];
 };
 typedef bool (*FrameFilter)(const FrameInfo& f);
 
@@ -108,7 +113,6 @@ uint32_t pcap_bytes();
 uint32_t pcap_drops();
 
 // ---------- ble ----------
-enum BleKind : uint8_t { BK_NONE, BK_FINDMY, BK_TILE, BK_SMARTTAG, BK_FLOCK };
 struct BleDev {
   char addr[18];
   char name[24];
@@ -116,10 +120,12 @@ struct BleDev {
   uint32_t first, last;
   uint16_t mfg;
   bool hasMfg;
-  uint8_t kind;
-  uint8_t flock;  // flock-signature score 0..100
-  char why[18];
+  uint8_t type;  // DetType
+  uint8_t conf;  // Conf
+  char label[18];
   uint16_t seen;
+  bool hasRid;
+  RidInfo rid;
 };
 void ble_start();
 void ble_stop();
@@ -132,5 +138,7 @@ void app_channels();
 void app_ble();
 void app_monitor();
 void app_guard();
-void app_flock();
+void app_detector();
+void app_types();
+bool type_enabled(uint8_t t);
 void app_settings();

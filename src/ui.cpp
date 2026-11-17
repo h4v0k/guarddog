@@ -6,6 +6,11 @@ M5Canvas body(&M5.Display);
 Settings gSet;
 bool gSdOk = false;
 
+bool type_enabled(uint8_t t) {
+  uint16_t m = gSet.typeMask ? gSet.typeMask : det_default_mask();
+  return (m >> t) & 1;
+}
+
 // ================= settings =================
 void settings_load() {
   Preferences p;
@@ -14,6 +19,8 @@ void settings_load() {
   gSet.sound = p.getBool("snd", gSet.sound);
   gSet.leds = p.getBool("led", gSet.leds);
   gSet.big = p.getBool("big", gSet.big);
+  gSet.alertLvl = p.getUChar("alv", gSet.alertLvl);
+  gSet.typeMask = p.getUShort("tmask", 0);
   p.end();
 }
 
@@ -24,6 +31,8 @@ void settings_save() {
   p.putBool("snd", gSet.sound);
   p.putBool("led", gSet.leds);
   p.putBool("big", gSet.big);
+  p.putUChar("alv", gSet.alertLvl);
+  p.putUShort("tmask", gSet.typeMask);
   p.end();
 }
 
@@ -329,7 +338,7 @@ void app_settings() {
     Key k = ui_tick();
     if (k == K_BACK) break;
     if (k == K_UP && sel > 0) sel--, dirty = true;
-    if (k == K_DOWN && sel < 7) sel++, dirty = true;
+    if (k == K_DOWN && sel < 9) sel++, dirty = true;
     if (k == K_OK) {
       dirty = true;
       if (sel == 0) {
@@ -346,6 +355,12 @@ void app_settings() {
       } else if (sel == 3) {
         gSet.big = !gSet.big;
       } else if (sel == 4) {
+        gSet.alertLvl = gSet.alertLvl >= CF_HIGH ? CF_LOW : gSet.alertLvl + 1;
+      } else if (sel == 5) {
+        app_types();
+        ui_header("Settings", col::dim);
+        ui_footer("^", "Change", "v");
+      } else if (sel == 6) {
         sd_begin();
       }
       settings_save();
@@ -357,7 +372,7 @@ void app_settings() {
     }
     dirty = false;
     lastDraw = millis();
-    ui_list(8, sel, top, [&](int i, int y, int h, bool s) {
+    ui_list(10, sel, top, [&](int i, int y, int h, bool s) {
       char v[24];
       const char* label = "";
       uint32_t vc = col::text;
@@ -366,10 +381,12 @@ void app_settings() {
         case 1: label = "Sound"; strcpy(v, gSet.sound ? "On" : "Off"); vc = gSet.sound ? col::good : col::dim; break;
         case 2: label = "LED bar"; strcpy(v, gSet.leds ? "On" : "Off"); vc = gSet.leds ? col::good : col::dim; break;
         case 3: label = "Large text"; strcpy(v, gSet.big ? "On" : "Off"); vc = gSet.big ? col::good : col::dim; break;
-        case 4: label = "SD card"; strcpy(v, gSdOk ? "Ready" : "None"); vc = gSdOk ? col::good : col::bad; break;
-        case 5: label = "Battery"; snprintf(v, sizeof v, "%d%%", M5.Power.getBatteryLevel()); break;
-        case 6: label = "Free RAM"; snprintf(v, sizeof v, "%u KB", (unsigned)(ESP.getFreeHeap() / 1024)); break;
-        case 7: label = "Version"; strcpy(v, SW_VERSION); break;
+        case 4: label = "Alert level"; strcpy(v, gSet.alertLvl == CF_LOW ? "All" : (gSet.alertLvl == CF_MED ? "Med+" : "High only")); vc = col::accent; break;
+        case 5: label = "Detect types"; strcpy(v, ">"); vc = col::accent; break;
+        case 6: label = "SD card"; strcpy(v, gSdOk ? "Ready" : "None"); vc = gSdOk ? col::good : col::bad; break;
+        case 7: label = "Battery"; snprintf(v, sizeof v, "%d%%", M5.Power.getBatteryLevel()); break;
+        case 8: label = "Free RAM"; snprintf(v, sizeof v, "%u KB", (unsigned)(ESP.getFreeHeap() / 1024)); break;
+        case 9: label = "Version"; strcpy(v, SW_VERSION); break;
       }
       ui_rowfont();
       body.setTextDatum(middle_left);
@@ -378,6 +395,46 @@ void app_settings() {
       body.setTextDatum(middle_right);
       body.setTextColor(vc);
       body.drawString(v, SCR_W - 14, y + h / 2);
+    });
+    ui_push();
+  }
+}
+
+// ================= detection type toggles =================
+void app_types() {
+  int sel = 0, top = 0;
+  const int N = DT_COUNT - 1;
+  ui_header("Detect types", col::accent);
+  ui_footer("^", "On / Off", "v");
+  bool dirty = true;
+  while (true) {
+    Key k = ui_tick();
+    if (k == K_BACK) break;
+    if (k == K_UP && sel > 0) sel--, dirty = true;
+    if (k == K_DOWN && sel < N - 1) sel++, dirty = true;
+    if (k == K_OK) {
+      uint16_t m = gSet.typeMask ? gSet.typeMask : det_default_mask();
+      m ^= 1 << (sel + 1);
+      gSet.typeMask = m ? m : 1;  // keep non-zero so "defaults" stays distinct
+      settings_save();
+      dirty = true;
+    }
+    if (!dirty) {
+      delay(10);
+      continue;
+    }
+    dirty = false;
+    ui_list(N, sel, top, [&](int i, int y, int h, bool s) {
+      uint8_t t = i + 1;
+      bool on = type_enabled(t);
+      body.fillRoundRect(16, y + h / 2 - 7, 14, 14, 3, det_color(t));
+      ui_rowfont();
+      body.setTextDatum(middle_left);
+      body.setTextColor(on ? col::text : col::dim);
+      body.drawString(det_name(t), 40, y + h / 2);
+      body.setTextDatum(middle_right);
+      body.setTextColor(on ? col::good : col::dim);
+      body.drawString(on ? "On" : "Off", SCR_W - 14, y + h / 2);
     });
     ui_push();
   }

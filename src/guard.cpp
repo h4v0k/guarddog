@@ -126,6 +126,15 @@ void app_guard() {
         floodCh = f.ch;
         continue;
       }
+      if (sig_is_pwnagotchi(f.a2)) alert(0x9A9A, col::bad, "Pwnagotchi nearby");
+      if (f.ssidLen > 0) {
+        SigHit hs = sig_ssid(f.ssid);
+        if (hs.type == DT_HACKER) {
+          char m[52];
+          snprintf(m, sizeof m, "%s: \"%.20s\" ch%d", hs.label, f.ssid, f.apCh ? f.apCh : f.ch);
+          alert(fnv(f.ssid) ^ 0x4A4A, col::bad, m);
+        }
+      }
       if (f.ssidLen <= 0) continue;
       uint32_t h = fnv(f.ssid);
       if (f.sub == 5) {  // probe response: karma check

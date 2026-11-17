@@ -9,43 +9,8 @@ static int devN = 0;
 static SemaphoreHandle_t mtx = nullptr;
 static bool bleInit = false;
 
-// Flock Safety / Raven BLE signatures (credit: colonelpanichacks/flock-you, MIT)
 static NimBLEUUID uFlockGatt("e8ccbb38-9532-46a8-9fe5-1814df172e6f");
-
-static bool allDigits(const char* s, int n) {
-  for (int i = 0; i < n; i++)
-    if (!isdigit((unsigned char)s[i])) return false;
-  return s[n] == 0;
-}
-
-static uint8_t flockScore(NimBLEAdvertisedDevice* d, const char* name, bool hasMfg, uint16_t mfg, char* why) {
-  uint8_t score = 0;
-  auto hit = [&](uint8_t s, const char* w) {
-    if (s > score) {
-      score = s;
-      strlcpy(why, w, 18);
-    }
-  };
-  if (name[0]) {
-    if (!strncasecmp(name, "penguin-", 8) && allDigits(name + 8, 10)) hit(85, "Penguin batt");
-    else if (ci_contains(name, "fs ext battery")) hit(85, "FS Ext Battery");
-    else if (ci_contains(name, "flock")) hit(70, "name: flock");
-    else if (ci_contains(name, "pigvision")) hit(70, "name: pigvision");
-    else if (allDigits(name, 10)) hit(50, "10-digit serial");
-    else if (!strcmp(name, "DfuTarg")) hit(35, "DFU target");
-  }
-  if (hasMfg && mfg == 0x09C8) hit(70, "mfg 0x09C8");
-  int n = d->getServiceUUIDCount();
-  for (int i = 0; i < n; i++) {
-    NimBLEUUID u = d->getServiceUUID(i);
-    if (u == uFlockGatt) hit(90, "Flock GATT");
-    else if (u.bitSize() == 16) {
-      uint16_t v = u.getNative()->u16.value;
-      if (v >= 0x3100 && v <= 0x3500) hit(70, "Raven service");
-    }
-  }
-  return score;
-}
+static NimBLEUUID uRid((uint16_t)0xFFFA);
 
 class ScanCB : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice* d) override {
@@ -54,24 +19,42 @@ class ScanCB : public NimBLEAdvertisedDeviceCallbacks {
     strlcpy(n.addr, d->getAddress().toString().c_str(), sizeof(n.addr));
     n.rssi = d->getRSSI();
     n.last = millis();
-    if (d->haveName()) strlcpy(n.name, d->getName().c_str(), sizeof(n.name));
+    SigHit h;
+    if (d->haveName()) {
+      strlcpy(n.name, d->getName().c_str(), sizeof(n.name));
+      h = better(h, sig_ble_name(n.name));
+    }
     if (d->haveManufacturerData()) {
       std::string m = d->getManufacturerData();
       if (m.size() >= 2) {
         n.hasMfg = true;
         n.mfg = (uint8_t)m[0] | ((uint16_t)(uint8_t)m[1] << 8);
-        if (n.mfg == 0x004C && m.size() >= 3 && (uint8_t)m[2] == 0x12) n.kind = BK_FINDMY;
+        h = better(h, sig_mfg(n.mfg, (const uint8_t*)m.data(), m.size()));
       }
     }
-    if (d->haveServiceUUID()) {
-      if (d->isAdvertisingService(NimBLEUUID((uint16_t)0xFEED)) ||
-          d->isAdvertisingService(NimBLEUUID((uint16_t)0xFEEC)))
-        n.kind = BK_TILE;
-      else if (d->isAdvertisingService(NimBLEUUID((uint16_t)0xFD5A)))
-        n.kind = BK_SMARTTAG;
+    int sc = d->getServiceUUIDCount();
+    for (int i = 0; i < sc; i++) {
+      NimBLEUUID u = d->getServiceUUID(i);
+      if (u.bitSize() == 16) h = better(h, sig_uuid16(u.getNative()->u16.value));
+      else if (u == uFlockGatt) h = better(h, SigHit(DT_FLOCK, CF_HIGH, "Flock GATT"));
     }
-    n.flock = flockScore(d, n.name, n.hasMfg, n.mfg, n.why);
-    if (n.flock >= 50 && n.kind == BK_NONE) n.kind = BK_FLOCK;
+    if (d->getAddressType() == BLE_ADDR_PUBLIC) {
+      const uint8_t* a = d->getAddress().getNative();  // little-endian
+      uint8_t be[3] = {a[5], a[4], a[3]};
+      h = better(h, sig_oui(be));
+    }
+    if (d->haveServiceData()) {
+      std::string sd = d->getServiceData(uRid);
+      if (sd.size() >= 2 + 25 && (uint8_t)sd[0] == 0x0D) {
+        if (rid_decode((const uint8_t*)sd.data() + 2, sd.size() - 2, n.rid)) {
+          n.hasRid = true;
+          h = better(h, SigHit(DT_DRONE, CF_HIGH, "Remote ID"));
+        }
+      }
+    }
+    n.type = h.type;
+    n.conf = h.conf;
+    strlcpy(n.label, h.label, sizeof(n.label));
 
     if (xSemaphoreTake(mtx, pdMS_TO_TICKS(5)) != pdTRUE) return;
     int idx = -1;
@@ -97,10 +80,18 @@ class ScanCB : public NimBLEAdvertisedDeviceCallbacks {
       o.seen++;
       if (n.name[0]) strlcpy(o.name, n.name, sizeof(o.name));
       if (n.hasMfg) o.mfg = n.mfg, o.hasMfg = true;
-      if (n.kind != BK_NONE) o.kind = n.kind;
-      if (n.flock > o.flock) {
-        o.flock = n.flock;
-        strlcpy(o.why, n.why, sizeof(o.why));
+      if (n.conf > o.conf) {
+        o.type = n.type;
+        o.conf = n.conf;
+        strlcpy(o.label, n.label, sizeof(o.label));
+      }
+      if (n.hasRid) {
+        RidInfo& r = o.rid;
+        if (n.rid.uasId[0]) strlcpy(r.uasId, n.rid.uasId, sizeof r.uasId);
+        if (n.rid.opId[0]) strlcpy(r.opId, n.rid.opId, sizeof r.opId);
+        if (n.rid.hasLoc) r.hasLoc = true, r.lat = n.rid.lat, r.lon = n.rid.lon, r.altM = n.rid.altM, r.speedMs = n.rid.speedMs;
+        if (n.rid.hasOp) r.hasOp = true, r.opLat = n.rid.opLat, r.opLon = n.rid.opLon;
+        o.hasRid = true;
       }
     }
     xSemaphoreGive(mtx);
@@ -160,16 +151,8 @@ const char* ble_vendor(uint16_t id) {
   }
 }
 
-static const char* kindTag(uint8_t k) {
-  switch (k) {
-    case BK_FINDMY: return "FindMy";
-    case BK_TILE: return "Tile";
-    case BK_SMARTTAG: return "SmartTag";
-    case BK_FLOCK: return "FLOCK?";
-    default: return nullptr;
-  }
-}
-static uint32_t kindColor(uint8_t k) { return k == BK_FLOCK ? col::bad : (k ? col::warn : col::dim); }
+static const char* kindTag(uint8_t t) { return t ? det_name(t) : nullptr; }
+static uint32_t kindColor(uint8_t t) { return det_color(t); }
 
 void app_ble() {
   static BleDev snap[MAX_BLE];
@@ -206,7 +189,7 @@ void app_ble() {
     lastRefresh = millis();
     n = ble_snapshot(snap, MAX_BLE);
     std::sort(snap, snap + n, [](const BleDev& a, const BleDev& b) {
-      if ((a.kind != 0) != (b.kind != 0)) return a.kind != 0;
+      if ((a.type != 0) != (b.type != 0)) return a.type != 0;
       return a.rssi > b.rssi;
     });
     sel = 0;
@@ -214,10 +197,10 @@ void app_ble() {
       if (!strcmp(snap[i].addr, selAddr)) sel = i;
     int trackers = 0;
     for (int i = 0; i < n; i++)
-      if (snap[i].kind) trackers++;
+      if (snap[i].type) trackers++;
     char note[24];
-    snprintf(note, sizeof note, trackers ? "%d / %d tags" : "%d devices", trackers ? trackers : n, n);
-    ui_header_note(note, trackers ? col::warn : col::text);
+    snprintf(note, sizeof note, "%d nearby", n);
+    ui_header_note(note, col::dim);
 
     if (detail && n) {
       const BleDev& d = snap[sel];
@@ -242,10 +225,10 @@ void app_ble() {
       if (d.hasMfg) snprintf(v, sizeof v, "%s (0x%04X)", ven ? ven : "?", d.mfg);
       else strcpy(v, "-");
       kv("Vendor", v, col::text);
-      kv("Type", kindTag(d.kind) ? kindTag(d.kind) : "-", kindColor(d.kind));
-      if (d.flock) {
-        snprintf(v, sizeof v, "%s (%d)", d.why, d.flock);
-        kv("Flock sig", v, d.flock >= 60 ? col::bad : col::warn);
+      kv("Type", kindTag(d.type) ? kindTag(d.type) : "-", kindColor(d.type));
+      if (d.type) {
+        snprintf(v, sizeof v, "%s (%s)", d.label, d.conf == CF_HIGH ? "high" : (d.conf == CF_MED ? "med" : "low"));
+        kv("Match", v, det_color(d.type));
       }
       char a1[12], a2[12];
       fmt_age(millis() - d.first, a1);
@@ -264,14 +247,14 @@ void app_ble() {
         body.setTextColor(rssi_color(d.rssi));
         body.drawString(r, SCR_W - 12, cy);
         int x = 14;
-        const char* tag = kindTag(d.kind);
+        const char* tag = kindTag(d.type);
         if (!tag && d.hasMfg) tag = ble_vendor(d.mfg);
         if (tag) {
           body.setFont(&fonts::Font2);
           int w = body.textWidth(tag) + 10;
-          body.fillRoundRect(x, cy - 9, w, 18, 4, d.kind ? kindColor(d.kind) : col::line);
+          body.fillRoundRect(x, cy - 9, w, 18, 4, d.type ? kindColor(d.type) : col::line);
           body.setTextDatum(middle_center);
-          body.setTextColor(d.kind ? col::bg : col::text);
+          body.setTextColor(d.type ? col::bg : col::text);
           body.drawString(tag, x + w / 2, cy);
           x += w + 6;
         }

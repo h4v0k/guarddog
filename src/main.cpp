@@ -9,12 +9,12 @@ struct MenuItem {
 };
 
 static const MenuItem MENU[] = {
+    {"Detector", col::bad, app_detector},
     {"Wi-Fi Survey", col::info, app_survey},
     {"Channel Map", col::info, app_channels},
     {"BLE Scanner", col::purple, app_ble},
     {"Packet Monitor", col::good, app_monitor},
     {"Wi-Fi Threats", col::bad, app_guard},
-    {"Flock Detector", col::warn, app_flock},
     {"Settings", col::dim, app_settings},
 };
 static const int MENU_N = sizeof(MENU) / sizeof(MENU[0]);
