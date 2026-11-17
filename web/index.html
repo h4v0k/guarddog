@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guard Dog — flasher</title>
+<script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+<style>
+  :root { --bg:#0a0c0f; --panel:#181c23; --line:#2a313b; --text:#e8ecf1; --dim:#8a94a3; --accent:#ff7a1a; --good:#34d399; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:1rem/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:44rem; margin:0 auto; padding:2rem 1.25rem 4rem; }
+  .brand { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+  .brand svg { width:3.2rem; height:3.6rem; flex:none; }
+  h1 { margin:0; font-size:2rem; letter-spacing:.04em; line-height:1.1; }
+  h1 span { color:var(--accent); }
+  .ver { color:var(--dim); font-size:.95rem; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:1.25rem; margin-top:1.5rem; }
+  h2 { font-size:1.15rem; margin:0 0 .6rem; }
+  ol, ul { padding-left:1.3rem; margin:.4rem 0; }
+  li { margin:.35rem 0; }
+  esp-web-install-button button, .btn { display:inline-block; background:var(--accent); color:#111; border:0; border-radius:10px;
+    padding:.8rem 1.4rem; font:600 1.05rem system-ui,sans-serif; cursor:pointer; text-decoration:none; }
+  .btn.ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  .row { display:flex; gap:.75rem; flex-wrap:wrap; margin-top:1rem; }
+  .note { color:var(--dim); font-size:.95rem; }
+  code { background:#0f1217; border:1px solid var(--line); border-radius:6px; padding:.1rem .35rem; font-size:.9em; overflow-wrap:anywhere; }
+  .apps { display:grid; grid-template-columns:repeat(auto-fit,minmax(14rem,1fr)); gap:.6rem; }
+  .apps div { border-left:3px solid var(--accent); padding:.2rem .7rem; }
+  .apps b { display:block; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <svg viewBox="0 0 64 72" aria-hidden="true"><g fill="#ff7a1a">
+      <ellipse cx="30" cy="42" rx="15" ry="25"/><ellipse cx="32" cy="58" rx="12" ry="10"/>
+      <circle cx="20" cy="10" r="7"/><circle cx="31" cy="7" r="5.5"/><circle cx="40" cy="9" r="4.6"/>
+      <circle cx="46" cy="15" r="3.8"/><circle cx="50" cy="22" r="3.2"/></g></svg>
+    <div>
+      <h1>GUARD <span>DOG</span></h1>
+      <div class="ver">v__VERSION__ · build __BUILD__ · M5Stack Fire / Core (ESP32)</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Flash it</h2>
+    <ol>
+      <li>Use Chrome or Edge on a computer (Web Serial).</li>
+      <li>Plug the M5Stack in with a USB-C <em>data</em> cable.</li>
+      <li>Click Install, pick the serial port (CP210x / CH9102), confirm erase.</li>
+    </ol>
+    <div class="row">
+      <esp-web-install-button manifest="manifest.json">
+        <button slot="activate">Install Guard Dog</button>
+        <span slot="unsupported">This browser can't flash over USB. Use desktop Chrome or Edge.</span>
+        <span slot="not-allowed">Flashing needs HTTPS.</span>
+      </esp-web-install-button>
+      <a class="btn ghost" href="guarddog.bin" download>Download .bin</a>
+    </div>
+    <p class="note">Manual: <code>esptool.py --chip esp32 write_flash 0x0 guarddog.bin</code>.
+      To go back to stock, re-flash the factory image from M5Burner.</p>
+  </div>
+
+  <div class="card">
+    <h2>Controls</h2>
+    <ul>
+      <li><b>A</b> (left) up · <b>C</b> (right) down · hold to scroll</li>
+      <li><b>B</b> (middle) click = select / action · <b>hold B</b> = back</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Apps</h2>
+    <div class="apps">
+      <div><b>Wi-Fi Survey</b>APs, BSSID, channel, RSSI, auth, cipher, PHY, WPS, country</div>
+      <div><b>Channel Map</b>AP count per channel, best of 1/6/11</div>
+      <div><b>BLE Scanner</b>Devices, vendors, FindMy / Tile / SmartTag trackers</div>
+      <div><b>Packet Monitor</b>Live traffic graph, deauth + EAPOL counts, PCAP to SD</div>
+      <div><b>Wi-Fi Threats</b>Deauth floods, evil twins, karma APs, beacon spam</div>
+      <div><b>Flock Detector</b>Flock Safety ALPR, Penguin, Raven over Wi-Fi + BLE</div>
+    </div>
+    <p class="note">Everything is receive-only. Captures and logs land in <code>/guarddog/</code> on the SD card.</p>
+  </div>
+</main>
+</body>
+</html>

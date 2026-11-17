@@ -1,0 +1,11 @@
+{
+  "name": "Guard Dog",
+  "version": "__VERSION__ (__BUILD__)",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [{ "path": "guarddog.bin", "offset": 0 }]
+    }
+  ]
+}
